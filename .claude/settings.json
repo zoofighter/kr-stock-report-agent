@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /Users/boon/Dropbox/03_code/a_0412_content_report/src/models)",
+      "Bash(mkdir -p /Users/boon/Dropbox/03_code/a_0412_content_report/src/researcher)",
+      "Bash(touch /Users/boon/Dropbox/03_code/a_0412_content_report/src/__init__.py)",
+      "Bash(touch /Users/boon/Dropbox/03_code/a_0412_content_report/src/models/__init__.py)",
+      "Bash(touch /Users/boon/Dropbox/03_code/a_0412_content_report/src/researcher/__init__.py)",
+      "Bash(python3 -c \"import langchain_ollama; print\\('ok'\\)\")",
+      "Bash(python -c \"import langchain_ollama\")",
+      "Bash(pip list:*)",
+      "Bash(pip install:*)",
+      "Bash(python -c 'import langchain_ollama; print\\('\\\\''langchain_ollama ok'\\\\''\\):*)",
+      "Bash(python -c ':*)"
+    ]
+  }
+}
