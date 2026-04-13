@@ -39,10 +39,53 @@ class ResearcherState(TypedDict):
 
     # 출력
     report_chunks: list
-    issues: list   # extract_issues 결과 (카테고리별 핵심 이슈)
+    news_chunks: list  # fetch_news 결과
+    issues: list       # extract_issues 결과 (카테고리별 핵심 이슈)
 
 
 class ResearchPackage(TypedDict):
     report_chunks: list
+    news_chunks: list
     issues: list
-    # news_chunks, advanced_qa_pairs는 다음 단계
+
+
+class AnalystState(TypedDict):
+    # 입력 (ResearchPackage 언팩)
+    topic: str
+    company_name: str
+    ticker: str
+    sector: str
+    today: str
+    report_date: str
+    report_chunks: list
+    news_chunks: list
+    issues: list
+
+    # ① assess_data
+    data_assessment: dict        # {score, warnings, report_count, news_count}
+
+    # ② extract_thesis
+    thesis_list: list            # [{"type", "thesis", "evidence", "importance"}]
+
+    # ③ build_toc
+    rag_context: str
+    toc_draft: list
+    toc_iteration: int
+
+    # ④ review_toc
+    review_feedback: str
+    review_approved: bool
+
+    # ⑤ human_toc → 확정 목차
+    toc: list
+
+    # ⑥ plan_sections
+    section_plans: list
+    global_context_seed: str
+
+
+class AnalysisPackage(TypedDict):
+    toc: list
+    thesis_list: list
+    section_plans: list
+    global_context_seed: str
