@@ -23,23 +23,22 @@ def extract_from_report(
         f"투자 판단에 중요한 핵심 이슈를 카테고리별로 추출하세요.\n\n"
         f"[리포트 내용]\n{content}\n\n"
         "카테고리:\n"
-        "- growth: 수치 기반 성장 동력 (매출, 이익, 점유율, ASP 등 수치 포함)\n"
+        "- growth: 수치 기반 성장 동력 (매출, 이익, 점유율 등 수치 포함)\n"
         "- risk: 하방 리스크, 불확실성, 경쟁 위협\n"
         "- catalyst: 단기 주가 촉매, 이벤트, 출시 일정, 실적 발표\n"
         "- quality: 질적 경쟁력 요소 (기술 우위, 고객 관계, 경영 전략 변화, 산업 구조 변화)\n\n"
         "조건:\n"
         "- 각 카테고리 최대 3개\n"
         "- detail에 수치나 구체적 근거 반드시 포함\n"
-        "- importance: 1=가장 중요 (숫자 작을수록 중요)\n\n"
+        "- importance: 1=가장 중요, 2=중요, 3=보통 (반드시 1~3 정수만 사용)\n\n"
         "출력 형식 (JSON 배열만, 다른 텍스트 없이):\n"
         '[\n'
-        '  {"category": "growth", "issue": "HBM3E 공급 확대",\n'
-        '   "detail": "2026년 HBM 매출 +40% 전망, ASP 15% 상승 지속", "importance": 1},\n'
-        '  {"category": "quality", "issue": "엔비디아 독점 공급 관계 유지",\n'
-        '   "detail": "HBM4 사전 인증 통과, 경쟁사 대비 6개월 리드타임 우위", "importance": 1},\n'
-        '  {"category": "risk", "issue": "중국 메모리 업체 추격",\n'
-        '   "detail": "CXMT DDR5 양산 본격화, 범용 DRAM 가격 압박 우려", "importance": 2},\n'
-        '  ...\n'
+        '  {"category": "growth", "issue": "주력 제품 매출 성장",\n'
+        '   "detail": "전년 대비 매출 +XX% 전망, 시장점유율 XX% 확대", "importance": 1},\n'
+        '  {"category": "risk", "issue": "원가 상승 압박",\n'
+        '   "detail": "원재료 가격 XX% 상승, 영업이익률 XX%p 하락 우려", "importance": 2},\n'
+        '  {"category": "catalyst", "issue": "신제품 출시 일정",\n'
+        '   "detail": "XX분기 신모델 출시, 초기 수주 XX억원 확보", "importance": 1}\n'
         ']'
     )
 

@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import hashlib
@@ -8,6 +9,7 @@ import requests
 import feedparser
 from dotenv import load_dotenv
 
+from src.models.llm import get_small_llm
 from src.researcher.rag_store import upsert_chunks
 from src.state import ResearcherState, COMPANY_KEYWORDS
 
@@ -186,28 +188,73 @@ def deduplicate(items: list[dict]) -> list[dict]:
     return result
 
 
+def _queries_from_l2(l2_text: str, company_name: str, ticker: str, sector: str, llm) -> list[str]:
+    """
+    RAPTOR L2 전체 요약 텍스트에서 뉴스 검색어 4개를 추출한다.
+    실적 / 시장동향 / 리스크 / 촉매 관점을 각각 커버하도록 LLM에 요청.
+    파싱 실패 시 기본 쿼리로 폴백.
+    """
+    prompt = (
+        f"다음은 {company_name}({ticker}, {sector}) 리포트의 전체 요약입니다.\n"
+        "이 내용을 바탕으로 최신 뉴스 검색에 사용할 한국어 검색어 4개를 JSON 배열로만 출력하세요.\n"
+        "각 검색어는 아래 관점을 하나씩 커버해야 합니다: 실적·매출, 시장·섹터 동향, 리스크·경쟁, 단기 촉매 이벤트.\n\n"
+        f"[리포트 요약]\n{l2_text}\n\n"
+        '["검색어1", "검색어2", "검색어3", "검색어4"]'
+    )
+    try:
+        raw = llm.invoke(prompt).content.strip()
+        start, end = raw.find("["), raw.rfind("]") + 1
+        queries = json.loads(raw[start:end])
+        if isinstance(queries, list) and queries:
+            return queries
+    except Exception:
+        pass
+    return [f"{company_name} 주가 실적"]  # 폴백
+
+
 def fetch_news(state: ResearcherState) -> dict:
     """
-    Researcher 노드: fetch_news
-    4개 소스 병렬 수집 → 중복 제거 → ChromaDB news 저장
+    Researcher 노드: fetch_news  (collect_reports 완료 후 실행)
+
+    L2 청크(전체 투자 논지 요약)가 있으면 LLM으로 관점별 검색어 4개를 생성하고
+    각 쿼리로 4개 소스를 수집한다. L2가 없으면 기본 쿼리로 폴백.
+    수집 후 중복 제거 → 90일 필터 → ChromaDB news 저장.
     """
     ticker       = state["ticker"]
     company_name = state["company_name"]
-    query        = f"{company_name} 주가 실적"
+    sector       = state["sector"]
 
     print(f"[fetch_news] {company_name} ({ticker}) 시작")
 
-    # 4개 소스 수집
-    naver_news = search_naver_news(query, ticker)
-    naver_blog = search_naver_blog(query, ticker)
-    google     = search_google_news(query, ticker)
-    ddg        = search_ddg(query, ticker)
+    # L2 청크에서 검색어 생성
+    l2_chunks = [
+        c for c in state.get("report_chunks", [])
+        if c.get("metadata", {}).get("raptor_level") == 2
+    ]
+    if l2_chunks:
+        llm     = get_small_llm()
+        queries = _queries_from_l2(l2_chunks[0]["text"], company_name, ticker, sector, llm)
+        print(f"  L2 기반 쿼리: {queries}")
+    else:
+        queries = [f"{company_name} 주가 실적"]
+        print(f"  L2 없음 — 기본 쿼리 사용: {queries}")
 
-    print(f"  Naver뉴스={len(naver_news)} Google={len(google)} DDG={len(ddg)} 블로그={len(naver_blog)}")
+    # 확장된 쿼리로 4개 소스 수집 (블로그는 첫 쿼리만 — 스팸 노이즈 최소화)
+    all_items = []
+    for query in queries:
+        all_items += search_naver_news(query, ticker)
+        all_items += search_google_news(query, ticker)
+        all_items += search_ddg(query, ticker)
+    all_items += search_naver_blog(queries[0], ticker)
 
-    # 병합 + 중복 제거
-    all_items = naver_news + google + ddg + naver_blog
-    deduped   = deduplicate(all_items)
+    naver_news_count = sum(1 for i in all_items if i.get("source") == "naver_news")
+    google_count     = sum(1 for i in all_items if i.get("source") == "google_news")
+    ddg_count        = sum(1 for i in all_items if i.get("source") == "ddg")
+    blog_count       = sum(1 for i in all_items if i.get("source") == "naver_blog")
+    print(f"  수집(중복 전): Naver뉴스={naver_news_count} Google={google_count} DDG={ddg_count} 블로그={blog_count}")
+
+    # 중복 제거
+    deduped = deduplicate(all_items)
 
     # 최신 90일 이내만 유지
     cutoff = (datetime.today() - timedelta(days=90)).strftime("%Y-%m-%d")

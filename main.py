@@ -1,6 +1,7 @@
 import argparse
 import warnings
 from datetime import datetime
+from pathlib import Path
 
 warnings.filterwarnings("ignore", category=ResourceWarning)  # Ollama HTTP 소켓 미종료 경고 억제
 
@@ -14,6 +15,7 @@ TARGETS = [
     {"company_name": "삼성전자",   "ticker": "005930", "sector": "반도체"},
     {"company_name": "현대차",     "ticker": "005380", "sector": "자동차"},
     {"company_name": "SK하이닉스", "ticker": "000660", "sector": "반도체"},
+    {"company_name": "NAVER",      "ticker": "035420", "sector": "인터넷/플랫폼"},
 ]
 
 
@@ -134,6 +136,79 @@ def run_writer(target: dict, analyst_result: dict) -> dict:
     return writer_graph.invoke(state, config=thread_config)
 
 
+def save_debug(target: dict, research_result: dict, analyst_result: dict) -> str:
+    """
+    디버깅용 텍스트 파일 저장 — 리포트 출력 폴더와 동일 경로
+    저장 내용: L2 요약 / 이슈 키워드 / thesis / TOC / 섹션 플랜 핵심
+    반환: 저장된 파일 경로
+    """
+    ticker       = target["ticker"]
+    company_name = target["company_name"]
+    today        = datetime.today().strftime("%Y%m%d")
+
+    out_dir = Path(f"/Users/boon/report_output/{ticker}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    debug_path = out_dir / f"{today}_{company_name}_debug.txt"
+
+    lines = []
+
+    # ── 1. RAPTOR L2 전체 요약 ──────────────────────────────────────
+    lines.append("=" * 60)
+    lines.append("[ RAPTOR L2 — 전체 투자 논지 요약 ]")
+    lines.append("=" * 60)
+    l2_chunks = [
+        c for c in research_result.get("report_chunks", [])
+        if c.get("metadata", {}).get("raptor_level") == 2
+    ]
+    if l2_chunks:
+        lines.append(l2_chunks[0]["text"])
+    else:
+        lines.append("(없음)")
+
+    # ── 2. 추출된 이슈 키워드 ────────────────────────────────────────
+    lines.append("\n" + "=" * 60)
+    lines.append("[ 이슈 키워드 (category / issue / detail) ]")
+    lines.append("=" * 60)
+    issues = research_result.get("issues", [])
+    if issues:
+        for iss in sorted(issues, key=lambda x: (x.get("category", ""), x.get("importance", 9))):
+            lines.append(
+                f"[{iss.get('category','?'):8s}] imp={iss.get('importance','?')}  "
+                f"{iss.get('issue','')}"
+            )
+            lines.append(f"          → {iss.get('detail','')}")
+    else:
+        lines.append("(없음)")
+
+    # ── 3. Thesis 목록 ───────────────────────────────────────────────
+    lines.append("\n" + "=" * 60)
+    lines.append("[ Thesis 목록 ]")
+    lines.append("=" * 60)
+    for i, th in enumerate(analyst_result.get("thesis_list", []), 1):
+        lines.append(f"{i}. [{th.get('type','')}] {th.get('thesis','')}")
+        lines.append(f"   근거: {th.get('evidence','')}")
+
+    # ── 4. 최종 TOC ──────────────────────────────────────────────────
+    lines.append("\n" + "=" * 60)
+    lines.append("[ 최종 TOC ]")
+    lines.append("=" * 60)
+    for s in analyst_result.get("toc", []):
+        lines.append(f"  {s.get('order')}. {s.get('title')}")
+        lines.append(f"     {s.get('description','')}")
+
+    # ── 5. 섹션 플랜 핵심 (key_message + rag_keywords) ──────────────
+    lines.append("\n" + "=" * 60)
+    lines.append("[ 섹션 플랜 — key_message / rag_keywords ]")
+    lines.append("=" * 60)
+    for sp in analyst_result.get("section_plans", []):
+        lines.append(f"\n{sp.get('order')}. {sp.get('title')}  (tone={sp.get('tone','')}, ~{sp.get('approx_length','')}자)")
+        lines.append(f"   핵심: {sp.get('key_message','')}")
+        lines.append(f"   RAG 키워드: {sp.get('rag_keywords','')}")
+
+    debug_path.write_text("\n".join(lines), encoding="utf-8")
+    return str(debug_path)
+
+
 def verify_rag(ticker: str, company_name: str):
     """RAG 저장 확인"""
     print(f"\n{'='*55}")
@@ -222,6 +297,9 @@ if __name__ == "__main__":
 
         section_plans = analyst_result.get("section_plans", [])
         print(f"\n Analyst 완료: 섹션 플랜 {len(section_plans)}개")
+
+        debug_path = save_debug(target, research_result, analyst_result)
+        print(f" 디버그 파일: {debug_path}")
 
         print(f"\n{'#'*60}")
         print(f"# {target['company_name']} ({target['ticker']}) — Writer")
