@@ -3,26 +3,19 @@ import json
 from src.models.llm import get_llm
 from src.state import AnalystState
 
-MAX_ITERATIONS = 3
-
-
 def review_toc(state: AnalystState) -> dict:
     """
     Analyst 노드: review_toc
     독립 LLM이 목차를 검토하여 승인 또는 재작성 요청.
-    최대 MAX_ITERATIONS회 반복 후 강제 승인.
+    toc_max_retries 초과 시 강제 승인.
     """
-    toc_draft     = state.get("toc_draft", [])
-    thesis_list   = state.get("thesis_list", [])
-    toc_iteration = state.get("toc_iteration", 1)
-    company_name  = state["company_name"]
+    toc_draft       = state.get("toc_draft", [])
+    thesis_list     = state.get("thesis_list", [])
+    toc_iteration   = state.get("toc_iteration", 1)
+    toc_max_retries = state.get("toc_max_retries", 2)
+    company_name    = state["company_name"]
 
-    print(f"[review_toc] {company_name} — {toc_iteration}차 검토")
-
-    # 최대 횟수 초과 시 강제 승인
-    if toc_iteration >= MAX_ITERATIONS:
-        print(f"  최대 {MAX_ITERATIONS}회 도달 — 강제 승인")
-        return {"review_approved": True, "review_feedback": ""}
+    print(f"[review_toc] {company_name} — {toc_iteration}/{toc_max_retries}차 검토")
 
     llm = get_llm(temperature=0.0)
 

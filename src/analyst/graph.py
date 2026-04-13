@@ -11,10 +11,17 @@ from src.analyst.plan_sections import plan_sections
 
 
 def _route_review(state: AnalystState) -> str:
-    """review_toc 결과에 따라 다음 노드 결정"""
-    if state.get("review_approved"):
+    """review_toc 결과에 따라 다음 노드 결정.
+    승인됐거나 최대 시도 횟수 도달 시 human_toc으로 진행.
+    """
+    toc_iteration   = state.get("toc_iteration", 1)
+    toc_max_retries = state.get("toc_max_retries", 2)
+
+    if state.get("review_approved") or toc_iteration >= toc_max_retries:
+        if toc_iteration >= toc_max_retries and not state.get("review_approved"):
+            print(f"  [router] 최대 {toc_max_retries}회 도달 — 강제 승인")
         return "human_toc"
-    return "build_toc"   # 재작성
+    return "build_toc"
 
 
 def _route_human(state: AnalystState) -> str:

@@ -1,3 +1,4 @@
+import argparse
 from datetime import datetime
 
 from src.state import ResearcherState, AnalystState
@@ -35,8 +36,14 @@ def run_researcher(target: dict) -> dict:
     return researcher_graph.invoke(state, config=thread_config)
 
 
-def run_analyst(target: dict, research_result: dict) -> dict:
-    """단일 종목 Analyst 실행 (Human-in-the-Loop 포함)"""
+def run_analyst(target: dict, research_result: dict,
+                human_in_the_loop: bool = True,
+                toc_max_retries: int = 2) -> dict:
+    """
+    단일 종목 Analyst 실행
+    human_in_the_loop=True  → 목차 승인 대기 (기본값)
+    human_in_the_loop=False → 자동 승인 (--no-hitl 옵션)
+    """
     state = AnalystState(
         topic=target["company_name"],
         company_name=target["company_name"],
@@ -52,6 +59,7 @@ def run_analyst(target: dict, research_result: dict) -> dict:
         rag_context="",
         toc_draft=[],
         toc_iteration=0,
+        toc_max_retries=toc_max_retries,
         review_feedback="",
         review_approved=False,
         toc=[],
@@ -61,35 +69,40 @@ def run_analyst(target: dict, research_result: dict) -> dict:
     thread_id = f"analyst_{target['ticker']}_{datetime.today().strftime('%Y%m%d')}"
     thread_config = {"configurable": {"thread_id": thread_id}}
 
-    # 1차 실행 — human_toc에서 interrupt
+    # 1차 실행 — human_toc에서 interrupt 발생
     result = analyst_graph.invoke(state, config=thread_config)
 
-    # Human-in-the-Loop: 목차 승인 루프
+    # Human-in-the-Loop 루프
     while True:
-        # interrupt 발생 여부 확인
         snapshot = analyst_graph.get_state(thread_config)
         if not snapshot.next:
             break  # 완료
 
-        if "human_toc" in snapshot.next:
-            # 목차 출력
-            toc_draft = snapshot.values.get("toc_draft", [])
-            print(f"\n{'='*55}")
-            print(f"[{target['company_name']}] 목차 초안")
-            print(f"{'='*55}")
-            for s in toc_draft:
-                print(f"  {s.get('order')}. {s.get('title')}")
-                print(f"     {s.get('description', '')}")
-            print(f"{'='*55}")
-            user_input = input("명령 ('ok'=승인 / 수정 내용 입력): ").strip()
-
-            # resume
-            result = analyst_graph.invoke(
-                {"__resume__": user_input or "ok"},
-                config=thread_config,
-            )
-        else:
+        if "human_toc" not in snapshot.next:
             break
+
+        # 목차 출력
+        toc_draft = snapshot.values.get("toc_draft", [])
+        print(f"\n{'='*55}")
+        print(f"[{target['company_name']}] 목차 초안")
+        print(f"{'='*55}")
+        for s in toc_draft:
+            print(f"  {s.get('order')}. {s.get('title')}")
+            print(f"     {s.get('description', '')}")
+        print(f"{'='*55}")
+
+        if human_in_the_loop:
+            # 사용자 입력 대기
+            user_input = input("명령 ('ok' 또는 Enter=승인 / 수정 내용 입력): ").strip()
+        else:
+            # 자동 승인
+            user_input = "ok"
+            print("  [자동 승인] --no-hitl 모드")
+
+        result = analyst_graph.invoke(
+            {"__resume__": user_input or "ok"},
+            config=thread_config,
+        )
 
     return result
 
@@ -117,11 +130,44 @@ def verify_rag(ticker: str, company_name: str):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="증권 리포트 자동 보고서 생성")
+    parser.add_argument(
+        "--no-hitl",
+        action="store_true",
+        default=False,
+        help="Human-in-the-Loop 비활성화 (목차 자동 승인). 기본값: 활성화(사용자 승인 대기)",
+    )
+    parser.add_argument(
+        "--toc-retries",
+        type=int,
+        default=2,
+        help="build_toc 최대 재시도 횟수 (기본값: 2)",
+    )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        default=None,
+        help="특정 종목만 실행 (예: 005930). 미지정 시 전체 종목 실행",
+    )
+    args = parser.parse_args()
+
+    hitl        = not args.no_hitl       # 기본값 True
+    toc_retries = args.toc_retries       # 기본값 2
+
     print("시작 — 리포트 수집 + 뉴스 수집 → 이슈 추출 → Analyst")
     print(f"리포트 경로: /Users/boon/report/")
-    print(f"DB 경로:     /Users/boon/report_db/\n")
+    print(f"DB 경로:     /Users/boon/report_db/")
+    print(f"Human-in-the-Loop: {'활성화' if hitl else '비활성화 (자동 승인)'}")
+    print(f"TOC 최대 시도: {toc_retries}회\n")
 
-    for target in TARGETS:
+    targets = TARGETS
+    if args.ticker:
+        targets = [t for t in TARGETS if t["ticker"] == args.ticker]
+        if not targets:
+            print(f"[ERROR] 종목 {args.ticker}을 찾을 수 없습니다.")
+            exit(1)
+
+    for target in targets:
         print(f"\n{'#'*60}")
         print(f"# {target['company_name']} ({target['ticker']}) — Researcher")
         print(f"{'#'*60}")
@@ -139,7 +185,9 @@ if __name__ == "__main__":
         print(f"# {target['company_name']} ({target['ticker']}) — Analyst")
         print(f"{'#'*60}")
 
-        analyst_result = run_analyst(target, research_result)
+        analyst_result = run_analyst(target, research_result,
+                                     human_in_the_loop=hitl,
+                                     toc_max_retries=toc_retries)
 
         section_plans = analyst_result.get("section_plans", [])
         print(f"\n Analyst 완료: 섹션 플랜 {len(section_plans)}개")

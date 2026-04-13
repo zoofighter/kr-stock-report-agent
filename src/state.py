@@ -71,6 +71,7 @@ class AnalystState(TypedDict):
     rag_context: str
     toc_draft: list
     toc_iteration: int
+    toc_max_retries: int   # build_toc 최대 시도 횟수 (기본값 2)
 
     # ④ review_toc
     review_feedback: str
