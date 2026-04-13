@@ -6,5 +6,5 @@ NewsAgent  에 대해 좀 더 자세히 설명하고 새문서에 저장
 rag는 단편적인 답변만 줄 수 있나  좀더 구조화된 답변을 만들기 위한 설계는 어렵나 
 에이전트 구조를 Researcher, Analyst, writer, 슈퍼바이저 구조로 단순화하는 것이 의미 있을까
 새로 변경된 구조에서 advanced_qa 구조가 잘 설계 되었는지 확인
-
-일단 구현을 할 건데 report에서 삼성전자 현대차 하이닉스를 읽고 advanced_qa
+human in the loop 부분에 대해서 상세히 설명하고 새문서에 저장
+report에서 데이터 수집하고 삼성전자 현대차 하이닉스를 rag에 저장하고 읽고 advanced_qa직전까지 구현 설계도 작성 모형은 로컬에 있는 gemma 모델 사용
