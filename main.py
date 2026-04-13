@@ -66,7 +66,7 @@ def run_analyst(target: dict, research_result: dict,
         section_plans=[],
         global_context_seed="",
     )
-    thread_id = f"analyst_{target['ticker']}_{datetime.today().strftime('%Y%m%d')}"
+    thread_id = f"analyst_{target['ticker']}_{datetime.today().strftime('%Y%m%d_%H%M%S')}"
     thread_config = {"configurable": {"thread_id": thread_id}}
 
     # 1차 실행 — human_toc에서 interrupt 발생

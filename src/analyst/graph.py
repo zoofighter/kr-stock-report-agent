@@ -10,16 +10,20 @@ from src.analyst.human_toc import human_toc
 from src.analyst.plan_sections import plan_sections
 
 
-def _route_review(state: AnalystState) -> str:
-    """review_toc 결과에 따라 다음 노드 결정.
-    승인됐거나 최대 시도 횟수 도달 시 human_toc으로 진행.
-    """
+def _route_after_build(state: AnalystState) -> str:
+    """build_toc 직후 — 최대 횟수 도달 시 바로 human_toc으로 이동 (review 생략)."""
     toc_iteration   = state.get("toc_iteration", 1)
     toc_max_retries = state.get("toc_max_retries", 2)
 
-    if state.get("review_approved") or toc_iteration >= toc_max_retries:
-        if toc_iteration >= toc_max_retries and not state.get("review_approved"):
-            print(f"  [router] 최대 {toc_max_retries}회 도달 — 강제 승인")
+    if toc_iteration >= toc_max_retries:
+        print(f"  [router] 최대 {toc_max_retries}회 도달 — review 생략, 강제 승인")
+        return "human_toc"
+    return "review_toc"
+
+
+def _route_review(state: AnalystState) -> str:
+    """review_toc 결과에 따라 다음 노드 결정."""
+    if state.get("review_approved"):
         return "human_toc"
     return "build_toc"
 
@@ -50,7 +54,10 @@ def build_analyst_graph(checkpointer=None):
     builder.add_edge(START,            "assess_data")
     builder.add_edge("assess_data",    "extract_thesis")
     builder.add_edge("extract_thesis", "build_toc")
-    builder.add_edge("build_toc",      "review_toc")
+
+    # build_toc 직후: 최대 횟수 도달 시 review 생략하고 바로 human_toc
+    builder.add_conditional_edges("build_toc", _route_after_build,
+                                  {"review_toc": "review_toc", "human_toc": "human_toc"})
 
     builder.add_conditional_edges("review_toc", _route_review,
                                   {"human_toc": "human_toc", "build_toc": "build_toc"})
