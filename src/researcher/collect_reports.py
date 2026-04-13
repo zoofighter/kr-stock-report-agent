@@ -7,7 +7,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.models.llm import get_small_llm
-from src.researcher.rag_store import upsert_chunks
+from src.researcher.rag_store import upsert_chunks, count_by_ticker
 from src.state import ResearcherState, REPORT_DIR, COMPANY_KEYWORDS
 
 CHUNK_SIZE    = 800
@@ -183,6 +183,29 @@ def collect_reports(state: ResearcherState) -> dict:
     ticker       = state["ticker"]
     company_name = state["company_name"]
     print(f"[collect_reports] {company_name} ({ticker}) 시작")
+
+    # 이미 처리된 종목이면 ChromaDB에서 불러와 스킵
+    existing_count = count_by_ticker("reports", ticker)
+    if existing_count > 0:
+        print(f"  이미 처리됨 ({existing_count}개 청크) — 스킵")
+        from src.researcher.rag_store import get_collection
+        col = get_collection("reports")
+        rows = col.get(where={"ticker": {"$eq": ticker}}, include=["documents", "metadatas"])
+        cached_chunks = [
+            {"id": id_, "text": doc, "metadata": meta}
+            for id_, doc, meta in zip(rows["ids"], rows["documents"], rows["metadatas"])
+        ]
+        latest_date = max(
+            (c["metadata"].get("published_date", "") for c in cached_chunks if c["metadata"].get("raptor_level") == 0),
+            default=""
+        )
+        return {
+            "report_chunks": cached_chunks,
+            "raptor_chunks": cached_chunks,
+            "report_date":   latest_date,
+            "raw_texts":     [],
+            "parse_errors":  [],
+        }
 
     raw_docs = load_reports(ticker)
     if not raw_docs:

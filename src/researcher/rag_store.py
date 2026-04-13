@@ -76,6 +76,16 @@ def upsert_chunks(collection_name: str, chunks: list[dict]) -> int:
     return len(ids)
 
 
+def count_by_ticker(collection_name: str, ticker: str) -> int:
+    """해당 종목이 컬렉션에 저장된 청크 수 반환 (0이면 미처리)"""
+    try:
+        collection = get_collection(collection_name)
+        result = collection.get(where={"ticker": {"$eq": ticker}}, include=[])
+        return len(result["ids"])
+    except Exception:
+        return 0
+
+
 def search(
     collection_name: str,
     query: str,
