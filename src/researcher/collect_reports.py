@@ -3,7 +3,7 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 
-from langchain_community.document_loaders import PyPDFLoader
+import pdfplumber
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.models.llm import get_small_llm
@@ -27,9 +27,43 @@ def extract_date_from_filename(filename: str) -> str:
     return datetime.today().strftime("%Y-%m-%d")
 
 
+def extract_text_without_tables(pdf_path: str) -> list[dict]:
+    """
+    pdfplumber로 PDF를 읽되 표(table) 영역 텍스트는 제외하고 반환.
+    Returns: [{"text": str, "page": int}, ...]
+    """
+    pages_data = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages):
+            # 표 bbox 목록 추출
+            table_bboxes = [t.bbox for t in page.find_tables()]
+
+            if table_bboxes:
+                # 표 영역에 속하는 문자 객체 제거
+                filtered = page.filter(
+                    lambda obj: not any(
+                        obj.get("x0", 0) >= bbox[0]
+                        and obj.get("x1", 0) <= bbox[2]
+                        and obj.get("top", 0) >= bbox[1]
+                        and obj.get("bottom", 0) <= bbox[3]
+                        for bbox in table_bboxes
+                    )
+                )
+                text = filtered.extract_text() or ""
+            else:
+                text = page.extract_text() or ""
+
+            text = text.strip()
+            if text:
+                pages_data.append({"text": text, "page": page_num})
+
+    return pages_data
+
+
 def load_reports(ticker: str) -> list[dict]:
     """
-    /Users/boon/report/ 에서 종목명이 파일명에 포함된 PDF만 로드
+    /Users/boon/report/ 에서 종목명이 파일명에 포함된 PDF만 로드.
+    표 영역은 제외하고 텍스트만 추출.
     파일명 예: 26.04.08_삼성전자_키움증권_너무 좋아도 걱정.pdf
     """
     company_keyword = COMPANY_KEYWORDS[ticker]
@@ -43,19 +77,15 @@ def load_reports(ticker: str) -> list[dict]:
 
     for pdf_path in matched:
         try:
-            loader = PyPDFLoader(str(pdf_path))
-            pages = loader.load()
             pub_date = extract_date_from_filename(pdf_path.name)
+            pages = extract_text_without_tables(str(pdf_path))
 
-            for page in pages:
-                text = page.page_content.strip()
-                if not text:
-                    continue
+            for page_data in pages:
                 raw_docs.append({
-                    "text":           text,
+                    "text":           page_data["text"],
                     "source":         pdf_path.name,
                     "published_date": pub_date,
-                    "page":           page.metadata.get("page", 0),
+                    "page":           page_data["page"],
                     "ticker":         ticker,
                 })
         except Exception as e:

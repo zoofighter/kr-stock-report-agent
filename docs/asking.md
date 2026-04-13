@@ -10,5 +10,7 @@ human in the loop 부분에 대해서 상세히 설명하고 새문서에 저장
 report에서 데이터 수집하고 삼성전자 현대차 하이닉스를 rag에 저장하고 읽고 advanced_qa직전까지 구현 설계도 작성 모형은 로컬에 있는 gemma 모델 사용
 구현하기전에 db위치와 모델 위치등은 사전에 정확히 확인
 db나 pdf문서 위치 또는 모델 변경  
+보고서 pdf 읽을 때 표는 읽지 않고 텍스트만 저장할 수 있나 
+
 
 db 위치는 /Users/boon/report_db에서 
