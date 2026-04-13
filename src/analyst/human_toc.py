@@ -36,9 +36,9 @@ def human_toc(state: AnalystState) -> dict:
         return {"toc": toc_draft, "review_approved": True}
 
     # 수정 요청 → review_feedback에 저장 후 build_toc 재실행
+    # toc_iteration은 리셋하지 않음 — 최대 횟수 초과 시 LLM 검토 없이 바로 human_toc으로 복귀
     print(f"[human_toc] 수정 요청: {user_input}")
     return {
         "review_feedback": str(user_input),
         "review_approved": False,
-        "toc_iteration":   0,   # 재시도 카운터 초기화
     }

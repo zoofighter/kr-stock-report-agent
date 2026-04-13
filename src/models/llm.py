@@ -2,7 +2,7 @@ from langchain_ollama import ChatOllama, OllamaEmbeddings
 
 INFERENCE_MODEL = "gemma4:26b"
 
-SMALL_MODEL     = "gemma4:e2b"
+SMALL_MODEL     = "gemma4:26b"
 
 EMBEDDING_MODEL = "rjmalagon/gte-qwen2-1.5b-instruct-embed-f16:latest"
 
