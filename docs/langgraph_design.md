@@ -2,80 +2,72 @@
 
 **작성일:** 2026-04-12  
 **수정일:** 2026-04-13  
-**버전:** 0.2 (멀티에이전트 구조 반영)
+**버전:** 0.3 (Researcher / Analyst / Writer 3-에이전트 구조)
 
 ---
 
 ## 1. 아키텍처 개요
 
-단일 그래프 방식 → **Supervisor + Subagent 멀티에이전트** 방식으로 전환.  
-각 에이전트는 독립 그래프로 구성되며, Supervisor가 전체 상태를 보고 다음 에이전트를 결정한다.
+**외부:** Supervisor가 3개 에이전트(Researcher / Analyst / Writer)를 순차 조율  
+**내부:** 각 에이전트는 독립 서브그래프로 세부 작업을 병렬·순차 처리
 
 ```
 Supervisor Graph
-    ├── ReportCollectAgent  (서브그래프)
-    ├── NewsAgent           (서브그래프)
-    ├── QAAgent             (서브그래프)
-    ├── TOCAgent            (서브그래프)
-    ├── ReviewerAgent       (서브그래프)
-    ├── WriterAgent         (서브그래프)
-    └── EditorAgent         (서브그래프)
+  ├── Researcher  (서브그래프 — 수집 전담)
+  ├── Analyst     (서브그래프 — 분석·설계 전담)
+  └── Writer      (서브그래프 — 생성·편집 전담)
 ```
 
 ---
 
-## 2. 전체 그래프 구조 (Supervisor 패턴)
+## 2. 전체 그래프 구조
 
 ```mermaid
 flowchart TD
     START([START]) --> supervisor
 
-    supervisor["🎯 Supervisor\n상태 판단 → 다음 에이전트 선택"]
+    supervisor["🎯 Supervisor\n3개 에이전트 순차 조율\n상태 판단 → 다음 에이전트 선택"]
 
-    %% ① 병렬 수집
-    supervisor -->|"① 수집 시작"| collect_group
+    supervisor -->|"① 자료 수집"| researcher
 
-    subgraph collect_group["① 병렬 수집 (동시 실행)"]
-        direction LR
-        report_agent["📄 ReportCollectAgent\n리포트 로드 + 청크\n날짜 가중치 + RAG 저장"]
-        news_agent["📰 NewsAgent\nNaver / Google / DDG / Blog\n신뢰도 필터 + RAG 저장"]
-        qa_agent["❓ QAAgent\n리포트 요약 생성\n자기 질문 생성 + RAG 저장"]
+    subgraph researcher["📚 Researcher"]
+        direction TB
+        r_collect["리포트 수집\n청크 분할 + RAPTOR 계층\n+ RAG 저장"]
+        r_news["뉴스 수집 (병렬 4소스)\nNaver / Google / DDG / Blog\n신뢰도 필터 + RAG 저장"]
+        r_qa["QA 생성\n요약 + 자기질문 + AdvancedQA\n+ RAG 저장"]
+        r_collect & r_news --> r_qa
     end
 
-    collect_group -->|"수집 완료"| supervisor
+    researcher -->|"ResearchPackage"| supervisor
 
-    %% ② 목차 생성
-    supervisor -->|"② 목차 생성"| toc_agent
-    toc_agent["📋 TOCAgent\nRAG + QA 기반\n목차 초안 4~8개 생성"]
+    supervisor -->|"② 분석·설계"| analyst
 
-    toc_agent --> reviewer_agent
-    reviewer_agent["🔍 ReviewerAgent\n현시점 적합성 평가\n피드백 생성"]
+    subgraph analyst["🔍 Analyst"]
+        direction TB
+        a_toc["TOC 생성\n3단계 사고 프롬프트\n+ 섹터 가이드라인 주입"]
+        a_review["TOC 리뷰\n독립 LLM 적합성 평가\n(최대 3회 재생성)"]
+        a_human{{"✋ Human-in-the-Loop\n목차 승인 / 수정"}}
+        a_toc --> a_review
+        a_review -->|"재작성"| a_toc
+        a_review -->|"승인"| a_human
+        a_human -->|"수정"| a_toc
+    end
 
-    reviewer_agent -->|"재작성 필요"| toc_agent
-    reviewer_agent -->|"승인"| supervisor
+    analyst -->|"AnalysisPackage"| supervisor
 
-    %% Human-in-the-Loop ①
-    supervisor -->|"③ 목차 검토"| human_toc
-    human_toc{{"✋ Human-in-the-Loop\n목차 승인 / 수정"}}
-    human_toc -->|"수정"| toc_agent
-    human_toc -->|"승인"| supervisor
+    supervisor -->|"③ 보고서 작성"| writer
 
-    %% ③ 본문 작성
-    supervisor -->|"④ 섹션 작성"| writer_agent
-    writer_agent["✍️ WriterAgent\nRAG 검색 + 뉴스 인용\nglobal_context 주입\n섹션 순차 작성"]
+    subgraph writer["✍️ Writer"]
+        direction TB
+        w_plan["섹션 계획\n키워드 · 소제목 생성"]
+        w_write["섹션 작성 (반복)\nMulti-Query RAG\n+ RAPTOR + Structured Synthesis\n+ global_context 주입"]
+        w_edit["통합 편집\n문체 통일 + 출처 정리"]
+        w_human{{"✋ Human-in-the-Loop\n초안 승인 / 섹션 재작성"}}
+        w_plan --> w_write --> w_edit --> w_human
+        w_human -->|"재작성 요청"| w_write
+    end
 
-    writer_agent --> editor_agent
-    editor_agent["✂️ EditorAgent\n전체 통합 편집\n문체 통일 + 출처 정리"]
-
-    editor_agent --> supervisor
-
-    %% Human-in-the-Loop ②
-    supervisor -->|"⑤ 초안 검토"| human_draft
-    human_draft{{"✋ Human-in-the-Loop\n초안 검토 / 섹션 수정"}}
-    human_draft -->|"재작성 요청"| writer_agent
-    human_draft -->|"승인"| finalize
-
-    finalize["📑 최종 보고서 출력\nMarkdown / PDF"]
+    writer --> finalize["📑 최종 보고서\nMarkdown / PDF"]
     finalize --> END([END])
 ```
 
@@ -84,180 +76,228 @@ flowchart TD
 ## 3. Supervisor 라우팅 로직
 
 ```python
-def supervisor_router(state: ReportState) -> str:
-    if not state.get("report_chunks"):
-        return "collect_group"       # ① 수집 미완료 → 병렬 수집
-    if not state.get("toc_draft"):
-        return "toc_agent"           # ② 목차 초안 미생성
-    if not state.get("toc_approved"):
-        return "human_toc"           # ③ 목차 Human 검토 대기
-    if not state.get("sections_done"):
-        return "writer_agent"        # ④ 본문 작성 미완료
-    if not state.get("draft_approved"):
-        return "human_draft"         # ⑤ 초안 Human 검토 대기
+def supervisor_router(state: SupervisorState) -> str:
+    if not state.get("research_done"):
+        return "researcher"      # ① 수집 미완료
+    if not state.get("analysis_done"):
+        return "analyst"         # ② 분석 미완료
+    if not state.get("writing_done"):
+        return "writer"          # ③ 작성 미완료
     return "finalize"
 ```
 
 ---
 
-## 4. 공유 State 정의
+## 4. State 구조
+
+### 4.1 SupervisorState — 조율용 공유 State
 
 ```python
 from typing import TypedDict
 
-class ReportState(TypedDict):
+class ResearchPackage(TypedDict):
+    report_chunks: list[dict]       # RAPTOR 계층 포함
+    news_chunks: list[dict]         # 신뢰도 등급 포함
+    summaries: list[str]
+    qa_pairs: list[dict]
+    advanced_qa_pairs: list[dict]
+
+class AnalysisPackage(TypedDict):
+    toc: list[dict]                 # [{"title": ..., "key_message": ...}]
+    global_context_seed: str        # Writer 초기 global_context
+
+class SupervisorState(TypedDict):
     # 입력
-    topic: str                        # 보고서 주제 (종목명, 테마 등)
+    topic: str
+    company_name: str
+    ticker: str
+    sector: str
 
-    # ① 수집 결과
-    report_chunks: list[dict]         # 청크 + 날짜 가중치 메타
-    news_chunks: list[dict]           # 뉴스 + 소스 신뢰도 메타
-    summaries: list[str]              # 리포트 요약
-    qa_pairs: list[dict]              # {"question": ..., "answer": ..., "source": ...}
+    # 에이전트 패키지 (결과물 단위)
+    research: ResearchPackage
+    analysis: AnalysisPackage
 
-    # ② 목차
-    toc_draft: list[str]              # TOCAgent 초안
-    review_feedback: str              # ReviewerAgent 피드백
-    toc_approved: bool                # Human 승인 여부
-    toc: list[str]                    # 최종 확정 목차
-
-    # ③ 본문
-    global_context: str               # 섹션 간 일관성 유지 누적 컨텍스트
-    current_section_idx: int          # 현재 작성 중인 섹션 인덱스
-    sections: list[dict]              # [{"title", "keywords", "draft", "sources"}]
-    sections_done: bool               # 전체 섹션 완료 여부
-
-    # ④ 검토
-    draft_approved: bool              # Human 초안 승인 여부
-    human_edits: dict                 # {"section_idx": "수정 내용"}
+    # 진행 상태
+    research_done: bool
+    analysis_done: bool
+    writing_done: bool
 
     # 출력
-    final_report: str                 # 최종 보고서 Markdown
+    final_report: str
 ```
+
+### 4.2 에이전트별 Private State (내부 전용)
+
+| State | 주요 필드 | 접근 주체 |
+|-------|---------|----------|
+| `ResearcherState` | file_paths, raw_texts, naver_raw, qa_draft... | Researcher 전용 |
+| `AnalystState` | rag_context, thinking_steps, toc_draft, review_feedback... | Analyst 전용 |
+| `WriterState` | current_section_idx, global_context, rag_results, section_draft... | Writer 전용 |
+
+> 에이전트 내부 State 상세는 `state_design.md` 참고
 
 ---
 
-## 5. 서브에이전트별 상세
-
-### 5.1 ReportCollectAgent
-```
-그래프: report_collect_graph
-도구:   file_loader, text_splitter, date_weight_calculator, rag_upsert
-입력:   topic
-출력:   report_chunks → State 업데이트
-```
-
-### 5.2 NewsAgent
-```
-그래프: news_graph
-도구:   naver_news, google_news, ddg_news, naver_blog, dedup_filter, rag_upsert
-입력:   topic, keywords
-출력:   news_chunks → State 업데이트
-병렬:   4개 소스를 Send API로 동시 수집 후 병합
-```
-
-### 5.3 QAAgent
-```
-그래프: qa_graph
-도구:   rag_search(summaries), llm_generate(소형 모델), rag_upsert
-입력:   summaries
-출력:   qa_pairs → State 업데이트
-```
-
-### 5.4 TOCAgent
-```
-그래프: toc_graph
-도구:   rag_search(reports + news + qa), llm_generate(Chain-of-Thought)
-입력:   report_chunks, news_chunks, qa_pairs
-출력:   toc_draft → State 업데이트
-전략:   현재 날짜 컨텍스트 주입, deep thinking 프롬프트
-```
-
-### 5.5 ReviewerAgent
-```
-그래프: reviewer_graph (TOCAgent와 독립 LLM 인스턴스)
-평가:   현시점 관련성, 데이터 커버리지, 항목 중복/누락, 독자 완결성
-입력:   toc_draft
-출력:   review_feedback ("승인" or "재작성: <사유> / <개선안>")
-```
-
-### 5.6 WriterAgent
-```
-그래프: writer_graph
-도구:   rag_search(날짜 가중치 적용), news_search, llm_generate
-입력:   toc[current_section_idx], global_context
-출력:   sections[idx].draft → global_context 업데이트 → 반복
-```
-
-### 5.7 EditorAgent
-```
-그래프: editor_graph
-도구:   llm_generate
-입력:   sections (전체)
-출력:   merged_draft (문체 통일 + 출처 정리)
-```
-
----
-
-## 6. 병렬 수집 — Send API 활용
+## 5. Researcher 내부 서브그래프
 
 ```python
 from langgraph.types import Send
 
-def dispatch_collection(state: ReportState):
-    """ReportCollect / News / QA 세 에이전트를 동시에 실행"""
+def dispatch_researcher(state: ResearcherState):
+    """리포트 수집과 뉴스 수집을 병렬 실행"""
     return [
-        Send("report_collect_agent", {"topic": state["topic"]}),
-        Send("news_agent",           {"topic": state["topic"]}),
-        Send("qa_agent",             {"topic": state["topic"]}),
+        Send("collect_reports", {...}),
+        Send("fetch_news",      {...}),   # 4개 소스 내부에서 다시 병렬
     ]
-```
+    # QA 생성은 리포트 수집 완료 후 순차 실행
 
-NewsAgent 내부에서도 4개 소스를 Send로 병렬 수집:
-
-```python
-def dispatch_news_sources(state):
-    sources = ["naver_news", "google_news", "ddg_news", "naver_blog"]
-    return [Send(src, {"topic": state["topic"]}) for src in sources]
+# 내부 노드 순서
+# collect_reports || fetch_news → generate_qa → advanced_qa → [완료]
 ```
 
 ---
 
-## 7. RAG 검색 전략
+## 6. Analyst 내부 서브그래프
+
+```python
+# TOC 재생성 횟수 제한
+MAX_TOC_ITERATIONS = 3
+
+def route_after_review(state: AnalystState) -> str:
+    if state["review_approved"]:
+        return "human_toc_approval"
+    if state["toc_iteration"] >= MAX_TOC_ITERATIONS:
+        return "human_toc_approval"   # 강제로 Human에게 넘김
+    return "build_toc"               # 재생성
+
+# Checkpointer 설정 (Human-in-the-Loop 필수)
+analyst_graph = analyst_flow.compile(
+    checkpointer=checkpointer,
+    interrupt_before=["human_toc_approval"]
+)
+```
+
+---
+
+## 7. Writer 내부 서브그래프
+
+```python
+def route_after_section(state: WriterState) -> str:
+    if state["current_section_idx"] < len(state["toc"]):
+        return "write_section"    # 다음 섹션 작성
+    return "edit_draft"           # 전체 편집
+
+def route_after_human(state: WriterState) -> str:
+    if state["human_edits"]:
+        return "write_section"    # 수정 요청된 섹션 재작성
+    return "finalize"
+
+# Checkpointer 설정
+writer_graph = writer_flow.compile(
+    checkpointer=checkpointer,
+    interrupt_before=["human_draft_approval"]
+)
+```
+
+---
+
+## 8. 에이전트 간 State 매핑
+
+```python
+# Supervisor → Researcher 호출
+def call_researcher(state: SupervisorState) -> dict:
+    result = researcher_graph.invoke(ResearcherState(
+        topic=state["topic"],
+        ticker=state["ticker"],
+        sector=state["sector"],
+        # 내부 필드 초기화
+        ...
+    ))
+    return {
+        "research": ResearchPackage(
+            report_chunks=result["report_chunks"],
+            news_chunks=result["news_chunks"],
+            summaries=result["summaries"],
+            qa_pairs=result["qa_pairs"],
+            advanced_qa_pairs=result["advanced_qa_pairs"],
+        ),
+        "research_done": True
+    }
+
+# Supervisor → Analyst 호출
+def call_analyst(state: SupervisorState) -> dict:
+    result = analyst_graph.invoke(AnalystState(
+        topic=state["topic"],
+        sector=state["sector"],
+        today=today,
+        **state["research"],   # ResearchPackage 언팩
+        ...
+    ))
+    return {
+        "analysis": AnalysisPackage(
+            toc=result["toc"],
+            global_context_seed=result["global_context_seed"],
+        ),
+        "analysis_done": True
+    }
+
+# Supervisor → Writer 호출
+def call_writer(state: SupervisorState) -> dict:
+    result = writer_graph.invoke(WriterState(
+        toc=state["analysis"]["toc"],
+        global_context=state["analysis"]["global_context_seed"],
+        **state["research"],   # ResearchPackage 언팩
+        ...
+    ))
+    return {
+        "final_report": result["final_report"],
+        "writing_done": True
+    }
+```
+
+---
+
+## 9. Checkpointer & Store 적용 위치
+
+```
+[Checkpointer]
+Supervisor Graph     ← 전체 상태 스냅샷
+Analyst 서브그래프   ← interrupt_before: human_toc_approval
+Writer 서브그래프    ← interrupt_before: human_draft_approval
+                       + 섹션별 체크포인트 (에러 복구)
+
+[Store]
+Researcher  → news_cache      (TTL 1시간)
+Researcher  → qa_cache        (TTL 7일)
+Researcher  → advanced_qa_cache (유형별 TTL)
+Analyst     → toc_history     (영구, 편집 패턴 학습)
+Supervisor  → report_archive  (영구, 보고서 아카이브)
+```
+
+---
+
+## 10. RAG 검색 전략
 
 ```
 검색 스코어 = 벡터 유사도 × 날짜 가중치 × 소스 신뢰도
 
 날짜 가중치:  w(d) = exp(-λ × 경과일수)
 소스 신뢰도:  증권사 리포트=1.0 / 뉴스=0.8 / 블로그=0.5
+
+RAPTOR 레벨 선택:
+  Analyst TOC 생성  → Level 2 (전체요약)
+  Writer 섹션 작성  → Level 1 (중간요약) + Level 0 (수치 청크)
+  Researcher QA    → Level 0 (원문 청크)
 ```
 
 ---
 
-## 8. Human-in-the-Loop 인터페이스
+## 11. 구현 순서
 
-| 단계 | 개입 지점 | 사용자 액션 |
-|------|----------|------------|
-| 목차 검토 | ReviewerAgent 승인 후 | 항목 추가·삭제·순서 변경 후 승인 |
-| 초안 검토 | EditorAgent 완료 후 | 섹션 지정 재작성 요청 또는 전체 승인 |
-
-| UI 옵션 | 장점 | 단점 |
-|---------|------|------|
-| CLI interrupt | 구현 간단, LangGraph 기본 지원 | UX 불편 |
-| Streamlit | 시각적 편집 용이 | 별도 서버 필요 |
-| Telegram 봇 | 모바일 승인 가능 | 텍스트 편집 제한 |
-
-> **권장:** CLI interrupt → Streamlit 또는 Telegram 순차 전환
-
----
-
-## 9. 구현 순서
-
-1. `ReportCollectAgent` + `NewsAgent` 단독 구현 및 RAG 저장 확인
-2. `QAAgent` 구현 및 qa_pairs 저장 확인
-3. `TOCAgent` + `ReviewerAgent` 연결 (피드백 루프 검증)
-4. `WriterAgent` — global_context 누적 동작 검증
-5. `EditorAgent` 구현 및 통합 편집 품질 확인
-6. `Supervisor` 추가하여 전체 통합
-7. 병렬 수집 (Send API) 적용
-8. Human-in-the-Loop 인터페이스 연결
+1. Researcher 서브그래프 구현 및 RAG 저장 확인
+2. RAPTOR 인덱싱 파이프라인 구축
+3. Analyst 서브그래프 구현 (TOC → 리뷰 → Human 승인)
+4. Writer 서브그래프 구현 (Multi-Query + Structured Synthesis)
+5. Supervisor 연결 및 패키지 매핑 구현
+6. Store 캐시 및 히스토리 적용
+7. Human-in-the-Loop UI 연결

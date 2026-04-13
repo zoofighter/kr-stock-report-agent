@@ -9,5 +9,10 @@ LangGraph 상태(State)에 `global_context 도입
 
 
 
+==
+agent를 3개 정도에서 필요하면 추가
+
+
+
 
 
