@@ -67,7 +67,7 @@ def build_analyst_graph(checkpointer=None):
     builder.add_edge("plan_sections", END)
 
     cp = checkpointer or MemorySaver()
-    return builder.compile(checkpointer=cp)
+    return builder.compile(checkpointer=cp, interrupt_before=["human_toc"])
 
 
 analyst_graph = build_analyst_graph()

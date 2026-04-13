@@ -1,9 +1,13 @@
 import argparse
+import warnings
 from datetime import datetime
 
-from src.state import ResearcherState, AnalystState
+warnings.filterwarnings("ignore", category=ResourceWarning)  # Ollama HTTP 소켓 미종료 경고 억제
+
+from src.state import ResearcherState, AnalystState, WriterState
 from src.researcher.graph import researcher_graph
 from src.analyst.graph import analyst_graph
+from src.writer.graph import writer_graph
 from src.researcher.rag_store import search
 
 TARGETS = [
@@ -58,6 +62,7 @@ def run_analyst(target: dict, research_result: dict,
         thesis_list=[],
         rag_context="",
         toc_draft=[],
+        human_input="",
         toc_iteration=0,
         toc_max_retries=toc_max_retries,
         review_feedback="",
@@ -69,7 +74,7 @@ def run_analyst(target: dict, research_result: dict,
     thread_id = f"analyst_{target['ticker']}_{datetime.today().strftime('%Y%m%d_%H%M%S')}"
     thread_config = {"configurable": {"thread_id": thread_id}}
 
-    # 1차 실행 — human_toc에서 interrupt 발생
+    # 1차 실행 — interrupt_before["human_toc"]에서 pause
     result = analyst_graph.invoke(state, config=thread_config)
 
     # Human-in-the-Loop 루프
@@ -99,12 +104,34 @@ def run_analyst(target: dict, research_result: dict,
             user_input = "ok"
             print("  [자동 승인] --no-hitl 모드")
 
-        result = analyst_graph.invoke(
-            {"__resume__": user_input or "ok"},
-            config=thread_config,
-        )
+        # 사용자 입력을 상태에 주입 후 재개 (interrupt() 없이 안정적으로 동작)
+        analyst_graph.update_state(thread_config, {"human_input": user_input or "ok"})
+        result = analyst_graph.invoke(None, config=thread_config)
 
     return result
+
+
+def run_writer(target: dict, analyst_result: dict) -> dict:
+    """단일 종목 Writer 실행"""
+    state = WriterState(
+        company_name=target["company_name"],
+        ticker=target["ticker"],
+        sector=target["sector"],
+        today=datetime.today().strftime("%Y-%m-%d"),
+        report_date=analyst_result.get("report_date", ""),
+        toc=analyst_result.get("toc", []),
+        thesis_list=analyst_result.get("thesis_list", []),
+        section_plans=analyst_result.get("section_plans", []),
+        global_context_seed=analyst_result.get("global_context_seed", ""),
+        written_sections=[],
+        write_errors=[],
+        report_markdown="",
+        output_path="",
+    )
+    thread_config = {"configurable": {
+        "thread_id": f"writer_{target['ticker']}_{datetime.today().strftime('%Y%m%d_%H%M%S')}"
+    }}
+    return writer_graph.invoke(state, config=thread_config)
 
 
 def verify_rag(ticker: str, company_name: str):
@@ -146,15 +173,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ticker",
         type=str,
+        nargs="+",
         default=None,
-        help="특정 종목만 실행 (예: 005930). 미지정 시 전체 종목 실행",
+        help="실행할 종목 티커 (예: 005930  또는  005930 000660). 미지정 시 전체 종목 실행",
     )
     args = parser.parse_args()
 
     hitl        = not args.no_hitl       # 기본값 True
     toc_retries = args.toc_retries       # 기본값 2
 
-    print("시작 — 리포트 수집 + 뉴스 수집 → 이슈 추출 → Analyst")
+    print("시작 — 리포트 수집 + 뉴스 수집 → 이슈 추출 → Analyst → Writer")
     print(f"리포트 경로: /Users/boon/report/")
     print(f"DB 경로:     /Users/boon/report_db/")
     print(f"Human-in-the-Loop: {'활성화' if hitl else '비활성화 (자동 승인)'}")
@@ -162,9 +190,12 @@ if __name__ == "__main__":
 
     targets = TARGETS
     if args.ticker:
-        targets = [t for t in TARGETS if t["ticker"] == args.ticker]
-        if not targets:
-            print(f"[ERROR] 종목 {args.ticker}을 찾을 수 없습니다.")
+        requested = set(args.ticker)
+        targets = [t for t in TARGETS if t["ticker"] in requested]
+        not_found = requested - {t["ticker"] for t in targets}
+        if not_found:
+            print(f"[ERROR] 등록되지 않은 종목: {', '.join(not_found)}")
+            print(f"  지원 종목: {', '.join(t['ticker'] for t in TARGETS)}")
             exit(1)
 
     for target in targets:
@@ -192,6 +223,21 @@ if __name__ == "__main__":
         section_plans = analyst_result.get("section_plans", [])
         print(f"\n Analyst 완료: 섹션 플랜 {len(section_plans)}개")
 
-    print("\n\n 완료 — Writer 단계로 진행 가능")
+        print(f"\n{'#'*60}")
+        print(f"# {target['company_name']} ({target['ticker']}) — Writer")
+        print(f"{'#'*60}")
+
+        writer_result = run_writer(target, analyst_result)
+
+        output_path  = writer_result.get("output_path", "")
+        write_errors = writer_result.get("write_errors", [])
+        print(f"\n Writer 완료: {output_path}")
+        if write_errors:
+            print(f"  [경고] 오류 섹션 {len(write_errors)}개: "
+                  + ", ".join(str(e.get("order")) for e in write_errors))
+
+    print("\n\n 완료 — 전체 파이프라인 종료")
     print("\nChromaDB 확인:")
     print("  python -c \"import chromadb; c=chromadb.PersistentClient('/Users/boon/report_db'); [print(col.name,':',col.count()) for col in c.list_collections()]\"")
+    print("\n출력 파일 확인:")
+    print("  ls /Users/boon/report_output/")

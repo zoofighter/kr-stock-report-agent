@@ -78,6 +78,7 @@ class AnalystState(TypedDict):
     review_approved: bool
 
     # ⑤ human_toc → 확정 목차
+    human_input: str   # main.py가 update_state()로 주입하는 사용자 입력
     toc: list
 
     # ⑥ plan_sections
@@ -90,3 +91,26 @@ class AnalysisPackage(TypedDict):
     thesis_list: list
     section_plans: list
     global_context_seed: str
+
+
+class WriterState(TypedDict):
+    # 입력 (analyst_result에서 전달)
+    company_name: str
+    ticker: str
+    sector: str
+    today: str
+    report_date: str
+    toc: list                  # [{"order", "title", "description"}]
+    thesis_list: list          # [{"type", "thesis", "evidence", "importance"}]
+    section_plans: list        # Analyst가 생성한 섹션 플랜
+    global_context_seed: str
+
+    # write_sections 출력
+    written_sections: list     # [{"order", "title", "content"}]
+    write_errors: list
+
+    # assemble_report 출력
+    report_markdown: str
+
+    # save_report 출력
+    output_path: str

@@ -232,6 +232,104 @@ while: "ok" 전송
 
 ---
 
+## E-10. `--no-hitl` 자동 승인 미작동 — interrupt() resume 값 미전달
+
+**발생 위치:** `src/analyst/human_toc.py` + `main.py`
+
+**증상:** E-09 수정(interrupt_before 제거) 이후에도 `--no-hitl --toc-retries 2` 옵션에서 4차 시도까지 반복됨
+
+**원인:** `invoke({"__resume__": "ok"})` 방식이 LangGraph 버전에 따라 `interrupt()` 반환값에 전달되지 않음. `interrupt()`가 `None`을 반환하면 `str(None)` = `"none"`이 수정 요청으로 처리됨
+
+```python
+# human_toc.py — 수정 요청 분기
+if str(user_input).strip().lower() in ("ok", ...):  # "none" → 해당 없음
+    return {"toc": ..., "review_approved": True}
+
+# 수정 요청으로 처리 → build_toc 재실행 → 4차 시도
+return {"review_feedback": "None", "review_approved": False}
+```
+
+**해결: `interrupt()` 제거, `update_state()` + `invoke(None)` 방식으로 교체**
+
+```python
+# human_toc.py — interrupt() 완전 제거, 상태에서 읽기
+def human_toc(state: AnalystState) -> dict:
+    user_input = state.get("human_input", "").strip()
+    if user_input.lower() in ("ok", "승인", "y", "yes", ""):
+        return {"toc": toc_draft, "review_approved": True}
+    return {"review_feedback": user_input, "review_approved": False}
+
+# graph.py — interrupt_before 복구
+builder.compile(checkpointer=cp, interrupt_before=["human_toc"])
+
+# main.py — update_state로 입력 주입 후 invoke(None)으로 재개
+analyst_graph.update_state(thread_config, {"human_input": user_input or "ok"})
+result = analyst_graph.invoke(None, config=thread_config)
+```
+
+**상태 흐름:**
+```
+invoke(state) → interrupt_before["human_toc"] → pause
+  snapshot.next = ["human_toc"]
+update_state({"human_input": "ok"})
+invoke(None) → human_toc 실행 → state["human_input"] = "ok" → 승인
+  → plan_sections → END
+```
+
+**state.py 추가 필드:**
+```python
+human_input: str   # main.py가 update_state()로 주입하는 사용자 입력
+```
+
+---
+
+## E-11. LLM 호출 무한 대기 — 타임아웃 미설정
+
+**발생 위치:** `src/models/llm.py` → 전체 LLM 호출 노드
+
+**증상:**
+- `[write_sections]` 섹션 4 작성 중 30분 이상 응답 없음
+- `[extract_thesis]` SK하이닉스 시작 후 무한 대기
+
+**원인:** `ChatOllama` 생성 시 `timeout` 미설정. Ollama가 응답을 지연하거나 멈춰도 `llm.invoke()` 블로킹 호출이 무한 대기
+
+**해결 1 — 타임아웃 추가 (`src/models/llm.py`)**
+```python
+# 변경 전
+return ChatOllama(model=model, temperature=temperature, num_ctx=8192)
+
+# 변경 후
+return ChatOllama(model=model, temperature=temperature, num_ctx=8192, timeout=120)
+```
+`get_llm()`, `get_small_llm()` 모두 적용 (120초)
+
+**해결 2 — 에러 발생 시 중단 (`src/writer/write_sections.py`)**
+
+기존에는 타임아웃/오류 발생 시 `key_message`로 대체하고 계속 진행하는 fallback 로직이 있었으나 제거. 예외를 그대로 전파하여 파이프라인 중단.
+
+```python
+# 변경 전 — 오류 무시하고 대체 콘텐츠로 진행
+except Exception as e:
+    fallback = plan.get("key_message", ...)
+    written_sections.append({... "content": fallback})
+
+# 변경 후 — 예외 전파, 즉시 중단
+content = llm.invoke(prompt).content.strip()  # try/except 없음
+```
+
+**추가 — 섹션별 소요 시간 출력**
+```
+섹션 1: 펀더멘털의 질적·양적 도약...
+  완료 — 399자 / 15.3초
+섹션 2: 글로벌 Peer 대비 저평가...
+  완료 — 512자 / 28.7초
+[write_sections] 완료: 4개 / 총 92.4초
+```
+
+**참고:** 현재 실행 중인 프로세스는 수정 전 코드 — `Ctrl+C` 후 재실행 필요
+
+---
+
 ## 미해결 이슈
 
 | 이슈 | 설명 | 상태 |
