@@ -91,9 +91,11 @@ class SupervisorState(TypedDict):
 class ResearcherState(TypedDict):
     # 입력 (SupervisorState에서 매핑)
     topic: str
+    company_name: str               # AdvancedQA 프롬프트에 필요
     ticker: str
     sector: str
     today: str
+    report_date: str                # 가장 최근 리포트 발행일 (AdvancedQA 쿼터 계산에 필요)
 
     # 내부 — 리포트 수집
     file_paths: list[str]
@@ -216,8 +218,12 @@ SupervisorState          ← ~12개 필드, 패키지 단위 관리
 def call_researcher(state: SupervisorState) -> dict:
     result: ResearcherState = researcher_graph.invoke(
         ResearcherState(
-            topic=state["topic"], ticker=state["ticker"],
-            sector=state["sector"], today=state["today"],
+            topic=state["topic"],
+            company_name=state["company_name"],   # AdvancedQA 프롬프트용
+            ticker=state["ticker"],
+            sector=state["sector"],
+            today=state["today"],
+            report_date="",                        # collect_reports 노드에서 채움
             # 내부 필드 초기화
             file_paths=[], raw_texts=[], parse_errors=[], raptor_chunks=[],
             naver_raw=[], google_raw=[], ddg_raw=[], blog_raw=[], merged_news=[],

@@ -44,13 +44,18 @@ flowchart TD
 
     subgraph analyst["🔍 Analyst"]
         direction TB
-        a_toc["TOC 생성\n3단계 사고 프롬프트\n+ 섹터 가이드라인 주입"]
+        a_assess["데이터 충분성 평가\n품질 점수 + 경고 생성"]
+        a_thesis["핵심 논지 추출\n투자 thesis 3~5개"]
+        a_toc["TOC 생성\n3단계 사고 프롬프트\n+ 섹터 가이드라인 + thesis 주입"]
         a_review["TOC 리뷰\n독립 LLM 적합성 평가\n(최대 3회 재생성)"]
         a_human{{"✋ Human-in-the-Loop\n목차 승인 / 수정"}}
+        a_plan["섹션별 작성 가이드\n키워드·논지·수치 계획\n+ global_context_seed 생성"]
+        a_assess --> a_thesis --> a_toc
         a_toc --> a_review
         a_review -->|"재작성"| a_toc
         a_review -->|"승인"| a_human
         a_human -->|"수정"| a_toc
+        a_human -->|"승인"| a_plan
     end
 
     analyst -->|"AnalysisPackage"| supervisor
@@ -59,11 +64,10 @@ flowchart TD
 
     subgraph writer["✍️ Writer"]
         direction TB
-        w_plan["섹션 계획\n키워드 · 소제목 생성"]
-        w_write["섹션 작성 (반복)\nMulti-Query RAG\n+ RAPTOR + Structured Synthesis\n+ global_context 주입"]
+        w_write["섹션 작성 (반복)\nAnalyst section_plans 활용\nMulti-Query RAG + RAPTOR\n+ Structured Synthesis\n+ global_context 주입"]
         w_edit["통합 편집\n문체 통일 + 출처 정리"]
         w_human{{"✋ Human-in-the-Loop\n초안 승인 / 섹션 재작성"}}
-        w_plan --> w_write --> w_edit --> w_human
+        w_write --> w_edit --> w_human
         w_human -->|"재작성 요청"| w_write
     end
 
@@ -104,6 +108,8 @@ class ResearchPackage(TypedDict):
 
 class AnalysisPackage(TypedDict):
     toc: list[dict]                 # [{"title": ..., "key_message": ...}]
+    thesis_list: list[dict]         # 핵심 투자 논지 (extract_thesis 결과)
+    section_plans: list[dict]       # 섹션별 작성 가이드 (plan_sections 결과)
     global_context_seed: str        # Writer 초기 global_context
 
 class SupervisorState(TypedDict):
