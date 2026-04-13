@@ -24,11 +24,8 @@ def run_researcher(target: dict) -> dict:
         raw_texts=[],
         parse_errors=[],
         raptor_chunks=[],
-        grouped_by_report={},
-        qa_draft=[],
         report_chunks=[],
-        summaries=[],
-        qa_pairs=[],
+        issues=[],
     )
 
     thread_config = {
@@ -56,14 +53,14 @@ def verify_rag(ticker: str, company_name: str):
     for r in results:
         print(f"  score={r['score']:.4f} | {r['text'][:80]}...")
 
-    results = search("qa_pairs", f"{company_name} 투자 근거", ticker, top_k=2)
-    print(f"\n[qa_pairs] '{company_name} 투자 근거'")
+    results = search("issues", f"{company_name} 성장 동력", ticker, top_k=2)
+    print(f"\n[issues] '{company_name} 성장 동력'")
     for r in results:
         print(f"  score={r['score']:.4f} | {r['text'][:80]}...")
 
 
 if __name__ == "__main__":
-    print("Phase 1 시작 — 리포트 수집 → RAG 저장 → QA 생성")
+    print("Phase 1 시작 — 리포트 수집 → RAG 저장 → 핵심 이슈 추출")
     print(f"리포트 경로: /Users/boon/report/")
     print(f"DB 경로:     /Users/boon/report_db/\n")
 
@@ -76,11 +73,10 @@ if __name__ == "__main__":
 
         print(
             f"\n✅ 완료: 청크 {len(result['report_chunks'])}개 "
-            f"/ 요약 {len(result['summaries'])}개 "
-            f"/ QA {len(result['qa_pairs'])}개"
+            f"/ 이슈 {len(result['issues'])}개"
         )
         verify_rag(target["ticker"], target["company_name"])
 
-    print("\n\n🎉 Phase 1 완료 — advanced_qa 단계로 진행 가능")
+    print("\n\n Phase 1 완료 — Analyst 단계로 진행 가능")
     print("\nChromaDB 확인 명령:")
     print("  python3 -c \"import chromadb; c=chromadb.PersistentClient('/Users/boon/report_db'); [print(col.name,':',col.count()) for col in c.list_collections()]\"")

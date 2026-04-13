@@ -255,6 +255,50 @@ HAVING MAX(CASE WHEN em.key = 'ticker' THEN em.string_value END) = '005930'
 ORDER BY published_date DESC;
 ```
 
+### 4.8 issues 컬렉션 조회 (핵심 이슈)
+
+> **메타데이터 키:** `ticker`, `category`, `issue`, `detail`, `importance`(int), `source`, `published_date`  
+> **category 값:** `growth` / `risk` / `catalyst` / `quality`  
+> **importance:** 숫자 작을수록 중요 (1 = 최고)
+
+전체 이슈 (카테고리·중요도 순):
+
+```sql
+SELECT
+    MAX(CASE WHEN em.key = 'ticker'         THEN em.string_value END) AS ticker,
+    MAX(CASE WHEN em.key = 'category'       THEN em.string_value END) AS category,
+    MAX(CASE WHEN em.key = 'importance'     THEN em.int_value    END) AS importance,
+    MAX(CASE WHEN em.key = 'issue'          THEN em.string_value END) AS issue,
+    MAX(CASE WHEN em.key = 'detail'         THEN em.string_value END) AS detail,
+    MAX(CASE WHEN em.key = 'source'         THEN em.string_value END) AS source
+FROM collections c
+JOIN segments s   ON s.collection = c.id AND s.scope = 'METADATA'
+JOIN embeddings e ON e.segment_id = s.id
+JOIN embedding_metadata em ON em.id = e.id
+WHERE c.name = 'issues'
+GROUP BY e.embedding_id
+ORDER BY ticker, category, importance;
+```
+
+특정 종목 + 카테고리 필터:
+
+```sql
+SELECT
+    MAX(CASE WHEN em.key = 'category'   THEN em.string_value END) AS category,
+    MAX(CASE WHEN em.key = 'importance' THEN em.int_value    END) AS importance,
+    MAX(CASE WHEN em.key = 'issue'      THEN em.string_value END) AS issue,
+    MAX(CASE WHEN em.key = 'detail'     THEN em.string_value END) AS detail
+FROM collections c
+JOIN segments s   ON s.collection = c.id AND s.scope = 'METADATA'
+JOIN embeddings e ON e.segment_id = s.id
+JOIN embedding_metadata em ON em.id = e.id
+WHERE c.name = 'issues'
+GROUP BY e.embedding_id
+HAVING MAX(CASE WHEN em.key = 'ticker'   THEN em.string_value END) = '005930'
+   AND MAX(CASE WHEN em.key = 'category' THEN em.string_value END) = 'growth'
+ORDER BY importance;
+```
+
 ---
 
 ## 5. 실행 방법

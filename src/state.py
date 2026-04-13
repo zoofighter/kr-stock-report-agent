@@ -14,7 +14,8 @@ COMPANY_KEYWORDS = {
     "000660": "SK하이닉스",
 }
 
-# 리포트 PDF 저장 경로 (단일 플랫 디렉터리)
+# 리포트 PDF 저장 경로 (회사명 하위 폴더 구조)
+# 예: /Users/boon/report/삼성전자/26.04.07_삼성전자_....pdf
 REPORT_DIR = "/Users/boon/report"
 
 # ChromaDB 저장 경로
@@ -36,18 +37,12 @@ class ResearcherState(TypedDict):
     parse_errors: list
     raptor_chunks: list  # Level 0/1/2 포함
 
-    # generate_qa 내부
-    grouped_by_report: dict
-    qa_draft: list
-
     # 출력
     report_chunks: list
-    summaries: list
-    qa_pairs: list
+    issues: list   # extract_issues 결과 (카테고리별 핵심 이슈)
 
 
 class ResearchPackage(TypedDict):
     report_chunks: list
-    summaries: list
-    qa_pairs: list
+    issues: list
     # news_chunks, advanced_qa_pairs는 다음 단계

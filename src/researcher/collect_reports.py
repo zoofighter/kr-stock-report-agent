@@ -62,17 +62,19 @@ def extract_text_without_tables(pdf_path: str) -> list[dict]:
 
 def load_reports(ticker: str) -> list[dict]:
     """
-    /Users/boon/report/ 에서 종목명이 파일명에 포함된 PDF만 로드.
+    /Users/boon/report/{회사명}/ 하위 폴더에서 PDF 로드.
     표 영역은 제외하고 텍스트만 추출.
     파일명 예: 26.04.08_삼성전자_키움증권_너무 좋아도 걱정.pdf
     """
     company_keyword = COMPANY_KEYWORDS[ticker]
-    report_path = Path(REPORT_DIR)
+    company_dir = Path(REPORT_DIR) / company_keyword
     raw_docs = []
 
-    pdf_files = sorted(report_path.glob("*.pdf"))
-    matched = [p for p in pdf_files if company_keyword in p.name]
+    if not company_dir.exists():
+        print(f"  [WARN] 폴더 없음: {company_dir}")
+        return []
 
+    matched = sorted(company_dir.glob("*.pdf"))
     print(f"  [{company_keyword}] 매칭 파일: {len(matched)}개")
 
     for pdf_path in matched:
