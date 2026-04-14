@@ -12,7 +12,8 @@
       "Bash(pip install:*)",
       "Bash(python -c 'import langchain_ollama; print\\('\\\\''langchain_ollama ok'\\\\''\\):*)",
       "Bash(python -c ':*)",
-      "Bash(python main.py --ticker 035420 --no-hitl)"
+      "Bash(python main.py --ticker 035420 --no-hitl)",
+      "Read(//Users/boon/report_source/**)"
     ],
     "additionalDirectories": [
       "/tmp"

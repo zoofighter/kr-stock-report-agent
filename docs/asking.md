@@ -22,3 +22,8 @@ db 위치는 /Users/boon/report_db에서
 
 이미 Researcher/Analyst 데이터가 DB에 있으니, Writer만 다시 실행합니다.의미
 Researcher 캐시가 있어 빠르게 통과합니다. 전체 재실행합니다.
+
+지금 까지 구현 했던 것들중에서 랭극래프 학습용 그러니까. state, node , memore, store,  human in the loop, rag 등을 일목 요연하게 학습를 위한 정리를 해서 새로운 문서에 저장
+
+/researcher/organize_reports.py 를 실행할 때 종목 이름을 등록했어야 했는데 날짜만 입력해도 종목 이름이 알아서 정렬 될 수 있게 해주고 정리 된 종목 이름은 text로 저장 해줘
+

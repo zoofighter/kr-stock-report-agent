@@ -192,6 +192,33 @@ def deduplicate(items: list[dict]) -> list[dict]:
     return result
 
 
+def _blog_queries_from_l2(l2_text: str, company_name: str, ticker: str, sector: str, llm) -> list[str]:
+    """
+    RAPTOR L2 요약에서 블로그 전용 검색어 3개를 생성한다.
+    뉴스 쿼리와 달리 개인 투자자 시각(주가 전망, 재무 분석, 투자 의견)에 특화.
+    파싱 실패 시 기본 쿼리로 폴백.
+    """
+    prompt = (
+        f"다음은 {company_name}({ticker}, {sector}) 리포트의 전체 요약입니다.\n"
+        "이 내용을 바탕으로 네이버 블로그 검색에 사용할 한국어 검색어 3개를 JSON 배열로만 출력하세요.\n"
+        "블로그는 개인 투자자가 작성하므로, 아래 관점을 각각 커버해야 합니다:\n"
+        "- 주가 전망 및 목표주가 분석\n"
+        "- 재무제표·실적 분석 (영업이익, 매출, 밸류에이션)\n"
+        "- 투자 의견·리스크 및 매수·매도 근거\n\n"
+        f"[리포트 요약]\n{l2_text}\n\n"
+        '["검색어1", "검색어2", "검색어3"]'
+    )
+    try:
+        raw = llm.invoke(prompt).content.strip()
+        start, end = raw.find("["), raw.rfind("]") + 1
+        queries = json.loads(raw[start:end])
+        if isinstance(queries, list) and queries:
+            return queries
+    except Exception:
+        pass
+    return [f"{company_name} 주가 전망 분석"]  # 폴백
+
+
 def _queries_from_l2(l2_text: str, company_name: str, ticker: str, sector: str, llm) -> list[str]:
     """
     RAPTOR L2 전체 요약 텍스트에서 뉴스 검색어 4개를 추출한다.
@@ -243,13 +270,21 @@ def fetch_news(state: ResearcherState) -> dict:
         queries = [f"{company_name} 주가 실적"]
         print(f"  L2 없음 — 기본 쿼리 사용: {queries}")
 
-    # 확장된 쿼리로 4개 소스 수집 (블로그는 첫 쿼리만 — 스팸 노이즈 최소화)
+    # 블로그 전용 쿼리 생성 (개인 투자자 시각: 주가전망·재무분석·투자의견)
+    if l2_chunks:
+        blog_queries = _blog_queries_from_l2(l2_chunks[0]["text"], company_name, ticker, sector, llm)
+        print(f"  블로그 쿼리: {blog_queries}")
+    else:
+        blog_queries = [f"{company_name} 주가 전망 분석"]
+
+    # 뉴스/구글/DDG: L2 기반 쿼리 4개, 블로그: 전용 쿼리 3개
     all_items = []
     for query in queries:
         all_items += search_naver_news(query, ticker)
         all_items += search_google_news(query, ticker)
         all_items += search_ddg(query, ticker)
-    all_items += search_naver_blog(queries[0], ticker)
+    for query in blog_queries:
+        all_items += search_naver_blog(query, ticker)
 
     naver_news_count = sum(1 for i in all_items if i.get("source") == "naver_news")
     google_count     = sum(1 for i in all_items if i.get("source") == "google_news")
