@@ -9,7 +9,8 @@ organize_reports.py — 날짜 기준으로 보고서를 회사별 폴더에 자
   1. source_dir 에서 START_DATE 이후 PDF 파일을 스캔
   2. 파일명에서 회사명을 자동 추출 (회사명 목록 사전 등록 불필요)
   3. target_dir/{회사명}/ 폴더로 복사
-  4. 정리된 회사명 목록을 target_dir/organized_companies.txt 에 저장
+  4. KRX 상장법인 목록에서 종목코드 자동 조회
+  5. 파일 수 내림차순으로 정렬해 txt + CSV 저장
 
 파일명 규칙: YY.MM.DD_회사명_증권사_제목.pdf
 """
@@ -18,6 +19,7 @@ import os
 import sys
 import csv
 import shutil
+import io
 from datetime import datetime
 from collections import defaultdict
 
@@ -27,6 +29,28 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 
 SOURCE_DIR = "/Users/boon/report_source"
 TARGET_DIR = "/Users/boon/report"
+
+
+def fetch_krx_ticker_map() -> dict[str, str]:
+    """
+    KRX 상장법인 목록을 조회해 {회사명: 종목코드} 딕셔너리를 반환한다.
+    네트워크 오류 시 빈 딕셔너리를 반환한다.
+    """
+    try:
+        import requests
+        import pandas as pd
+
+        url = "http://kind.krx.co.kr/corpgeneral/corpList.do"
+        params = {"method": "download", "searchType": 13}
+        r = requests.get(url, params=params, timeout=10)
+        r.encoding = "euc-kr"
+        df = pd.read_html(io.StringIO(r.text))[0]
+        # 종목코드를 6자리 문자열로 정규화
+        df["종목코드"] = df["종목코드"].astype(str).str.zfill(6)
+        return dict(zip(df["회사명"], df["종목코드"]))
+    except Exception as e:
+        print(f"  [WARN] KRX 종목코드 조회 실패: {e}")
+        return {}
 
 
 def parse_filename(filename: str) -> tuple[str | None, str | None]:
@@ -105,11 +129,19 @@ def organize_reports(source_dir: str, target_dir: str, start_date: str) -> dict[
 def save_company_list(result: dict[str, list], target_dir: str, start_date: str) -> tuple[str, str]:
     """
     정리된 회사명과 파일 목록을 텍스트 + CSV 두 파일로 저장한다.
+    - 파일 수 내림차순 정렬
+    - KRX에서 종목코드 자동 조회
     - target_dir/organized_companies.txt  : 상세 목록 + TARGETS 스니펫
-    - PROJECT_ROOT/organized_companies.csv: company_name, file_count (main.py 위치)
+    - PROJECT_ROOT/organized_companies.csv: company_name, ticker, file_count
     """
     out_path = os.path.join(target_dir, "organized_companies.txt")
     today    = datetime.today().strftime("%Y-%m-%d %H:%M")
+
+    print("  KRX 종목코드 조회 중...")
+    ticker_map = fetch_krx_ticker_map()
+
+    # 파일 수 내림차순 정렬
+    sorted_companies = sorted(result.items(), key=lambda x: len(x[1]), reverse=True)
 
     lines = [
         f"보고서 정리 결과",
@@ -120,10 +152,10 @@ def save_company_list(result: dict[str, list], target_dir: str, start_date: str)
         "",
     ]
 
-    for company in sorted(result.keys()):
-        files = sorted(result[company])
-        lines.append(f"[ {company} ]  ({len(files)}개)")
-        for f in files:
+    for company, files in sorted_companies:
+        ticker = ticker_map.get(company, "??????")
+        lines.append(f"[ {company} ]  ({len(files)}개)  {ticker}")
+        for f in sorted(files):
             lines.append(f"  - {f}")
         lines.append("")
 
@@ -135,8 +167,9 @@ def save_company_list(result: dict[str, list], target_dir: str, start_date: str)
         "",
         "TARGETS = [",
     ]
-    for company in sorted(result.keys()):
-        lines.append(f'    {{"company_name": "{company}", "ticker": "??????", "sector": "??????"}},')
+    for company, _ in sorted_companies:
+        ticker = ticker_map.get(company, "??????")
+        lines.append(f'    {{"company_name": "{company}", "ticker": "{ticker}", "sector": "??????"}},')
     lines.append("]")
 
     content = "\n".join(lines)
@@ -144,28 +177,18 @@ def save_company_list(result: dict[str, list], target_dir: str, start_date: str)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(content)
 
-    return out_path
-
-
-def save_company_csv(result: dict[str, list], out_dir: str) -> str:
-    """
-    회사별 파일 수를 CSV로 저장한다.
-    저장 경로: out_dir/organized_companies.csv
-    컬럼: company_name, file_count
-    """
-    out_path = os.path.join(out_dir, "organized_companies.csv")
-    rows = sorted(
-        [{"company_name": company, "file_count": len(files)}
-         for company, files in result.items()],
-        key=lambda r: r["company_name"],
-    )
-
-    with open(out_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["company_name", "file_count"])
+    # CSV 저장 — main.py 와 같은 위치(PROJECT_ROOT), 파일 수 내림차순
+    csv_path = os.path.join(PROJECT_ROOT, "organized_companies.csv")
+    rows = [
+        {"company_name": company, "ticker": ticker_map.get(company, ""), "file_count": len(files)}
+        for company, files in sorted_companies
+    ]
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["company_name", "ticker", "file_count"])
         writer.writeheader()
         writer.writerows(rows)
 
-    return out_path
+    return out_path, csv_path
 
 
 if __name__ == "__main__":
@@ -190,12 +213,11 @@ if __name__ == "__main__":
     result = organize_reports(SOURCE_DIR, TARGET_DIR, START_DATE)
 
     if result:
-        txt_path = save_company_list(result, TARGET_DIR, START_DATE)
-        csv_path = save_company_csv(result, PROJECT_ROOT)
+        txt_path, csv_path = save_company_list(result, TARGET_DIR, START_DATE)
         total = sum(len(v) for v in result.values())
         print(f"\n완료!")
         print(f"  복사 파일: {total}개")
-        print(f"  회사 수  : {len(result)}개 → {sorted(result.keys())}")
+        print(f"  회사 수  : {len(result)}개")
         print(f"  목록 저장: {txt_path}")
         print(f"  CSV 저장 : {csv_path}")
     else:

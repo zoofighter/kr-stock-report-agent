@@ -1,4 +1,5 @@
 import argparse
+import csv
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,28 @@ TARGETS = [
     {"company_name": "SK하이닉스", "ticker": "000660", "sector": "반도체"},
     {"company_name": "NAVER",      "ticker": "035420", "sector": "인터넷/플랫폼"},
 ]
+
+COM_LIST_CSV = Path(__file__).parent / "com_list.csv"
+
+
+def load_targets_from_csv(csv_path: Path) -> list[dict]:
+    """
+    com_list.csv 에서 종목 목록을 읽는다.
+    컬럼: company_name, ticker, file_count (sector 없으면 빈 문자열)
+    ticker 가 비어 있는 행은 건너뛴다.
+    """
+    targets = []
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            ticker = row.get("ticker", "").strip()
+            if not ticker:
+                continue
+            targets.append({
+                "company_name": row.get("company_name", "").strip(),
+                "ticker":       ticker,
+                "sector":       row.get("sector", "").strip(),
+            })
+    return targets
 
 
 def run_researcher(target: dict) -> dict:
@@ -263,15 +286,28 @@ if __name__ == "__main__":
     print(f"Human-in-the-Loop: {'활성화' if hitl else '비활성화 (자동 승인)'}")
     print(f"TOC 최대 시도: {toc_retries}회\n")
 
-    targets = TARGETS
+    # 기본 종목 목록: --ticker 미지정 시 com_list.csv 우선, 없으면 TARGETS
     if args.ticker:
         requested = set(args.ticker)
-        targets = [t for t in TARGETS if t["ticker"] in requested]
-        not_found = requested - {t["ticker"] for t in targets}
+        # TARGETS + CSV 모두에서 검색
+        all_known = {t["ticker"]: t for t in TARGETS}
+        if COM_LIST_CSV.exists():
+            for t in load_targets_from_csv(COM_LIST_CSV):
+                all_known.setdefault(t["ticker"], t)
+        targets = [all_known[tk] for tk in requested if tk in all_known]
+        not_found = requested - set(all_known)
         if not_found:
             print(f"[ERROR] 등록되지 않은 종목: {', '.join(not_found)}")
-            print(f"  지원 종목: {', '.join(t['ticker'] for t in TARGETS)}")
+            print(f"  TARGETS 종목: {', '.join(t['ticker'] for t in TARGETS)}")
+            if COM_LIST_CSV.exists():
+                print(f"  com_list.csv 에서도 찾을 수 없음")
             exit(1)
+    elif COM_LIST_CSV.exists():
+        targets = load_targets_from_csv(COM_LIST_CSV)
+        print(f"com_list.csv 로드: {len(targets)}개 종목")
+    else:
+        targets = TARGETS
+        print(f"TARGETS 사용 (com_list.csv 없음): {len(targets)}개 종목")
 
     for target in targets:
         print(f"\n{'#'*60}")
