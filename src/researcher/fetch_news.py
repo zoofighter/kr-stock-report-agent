@@ -179,6 +179,103 @@ def search_ddg(query: str, ticker: str) -> list[dict]:
         return []
 
 
+def _strip_html(html: str) -> str:
+    """HTML 태그 제거"""
+    import re
+    return re.sub(r"<[^>]+>", " ", html).strip()
+
+
+def _normalize_url(url: str) -> str:
+    """URL에서 쿼리 파라미터 제거 — RSS URL의 ?fromRss=true 등을 제거해 API URL과 매칭"""
+    return url.split("?")[0].rstrip("/")
+
+
+def _fetch_rss_posts(blog_id: str) -> dict[str, str]:
+    """
+    블로그 RSS에서 {정규화된포스트URL: 본문텍스트} 딕셔너리를 반환한다.
+    RSS URL: https://rss.blog.naver.com/{blog_id}.xml
+
+    RSS URL은 ?fromRss=true&trackingCode=rss 등 쿼리 파라미터가 붙어 있어
+    API URL과 직접 매칭이 안 되므로 _normalize_url()로 정규화 후 저장한다.
+    실패 시 빈 딕셔너리 반환.
+    """
+    rss_url = f"https://rss.blog.naver.com/{blog_id}.xml"
+    try:
+        feed   = feedparser.parse(rss_url)
+        result = {}
+        for entry in feed.entries:
+            url = _normalize_url(entry.get("link", ""))
+            # content[0].value 우선, 없으면 summary
+            content = (
+                entry.get("content", [{}])[0].get("value", "")
+                or entry.get("summary", "")
+            )
+            text = _strip_html(content)
+            if len(text) > 200:          # 너무 짧은 항목 제외
+                result[url] = text
+        return result
+    except Exception as e:
+        print(f"  [RSS] {blog_id} 수집 실패: {e}")
+        return {}
+
+
+def enrich_blog_content(items: list[dict]) -> list[dict]:
+    """
+    naver_blog 항목에 대해 RSS로 전체 본문을 수집해 summary를 교체한다.
+
+    처리 흐름:
+    1. naver_blog 항목의 blogger_url에서 blog_id 추출
+    2. 블로거별 RSS 1회 fetch (캐시로 중복 호출 방지)
+    3. RSS 포스트 URL과 item URL 매칭 → 본문 교체
+    4. 매칭 실패 시 기존 API 스니펫 유지 (fallback)
+    """
+    rss_cache: dict[str, dict] = {}   # {blog_id: {url: 본문}}
+
+    enriched   = []
+    rss_count  = 0
+    skip_count = 0
+
+    for item in items:
+        if item.get("source") != "naver_blog":
+            enriched.append(item)
+            continue
+
+        blogger_url = item.get("blogger_url", "")
+        blog_id     = blogger_url.rstrip("/").split("/")[-1] if blogger_url else ""
+
+        if not blog_id:
+            enriched.append(item)
+            continue
+
+        # RSS 캐시 미스 시 fetch
+        if blog_id not in rss_cache:
+            rss_cache[blog_id] = _fetch_rss_posts(blog_id)
+            time.sleep(0.1)
+
+        post_url     = _normalize_url(item.get("url", ""))
+        rss_posts    = rss_cache[blog_id]
+        full_content = rss_posts.get(post_url, "")
+
+        # 정확한 URL 매칭 실패 시 → 블로거의 최신 RSS 포스트로 대체
+        if not full_content and rss_posts:
+            full_content = next(iter(rss_posts.values()), "")
+
+        if full_content:
+            item = {**item,
+                    "summary":        full_content[:2000],
+                    "content_source": "rss"}
+            rss_count += 1
+        else:
+            item = {**item, "content_source": "api_snippet"}
+            skip_count += 1
+
+        enriched.append(item)
+
+    blog_total = sum(1 for i in items if i.get("source") == "naver_blog")
+    print(f"  RSS 본문 보강: {rss_count}건 성공 / {skip_count}건 스니펫 유지 (블로그 {blog_total}건)")
+    return enriched
+
+
 def deduplicate(items: list[dict]) -> list[dict]:
     """URL 기준 중복 제거. 신뢰도 높은 소스 우선 보존."""
     seen, result = set(), []
@@ -301,11 +398,17 @@ def fetch_news(state: ResearcherState) -> dict:
 
     print(f"  중복 제거 후: {len(deduped)}개")
 
+    # 블로그 본문 RSS 보강 (API 스니펫 150자 → RSS 전체 본문 최대 2,000자)
+    deduped = enrich_blog_content(deduped)
+
     # ChromaDB 저장
     collected_date = datetime.today().strftime("%Y-%m-%d")
     chunks = []
     for item in deduped:
-        text = f"{item['title']} — {item['summary']}"
+        body   = item.get("summary", "")
+        source = item.get("content_source", "api_snippet")
+        # RSS 본문은 제목 + 줄바꿈 + 본문, 스니펫은 기존 방식 유지
+        text   = f"{item['title']}\n\n{body}" if source == "rss" else f"{item['title']} — {body}"
         chunks.append({
             "id":   item["id"],
             "text": text,
@@ -318,6 +421,7 @@ def fetch_news(state: ResearcherState) -> dict:
                 "published_date":   item["published_date"],
                 "collected_date":   collected_date,
                 "reliability":      item["reliability"],
+                "content_source":   source,
                 # 블로그 전용 필드 (naver_blog 소스만 값 있음, 나머지는 빈 문자열)
                 "blogger_name":     item.get("blogger_name", ""),
                 "blogger_url":      item.get("blogger_url", ""),
