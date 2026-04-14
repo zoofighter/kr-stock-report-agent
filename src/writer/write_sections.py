@@ -134,12 +134,19 @@ def write_sections(state: WriterState) -> dict:
         rag_context = _build_rag_context(plan, ticker)
         prompt      = _build_prompt(plan, rag_context, global_context_seed, thesis_list)
 
-        # 예외 발생 시 그대로 전파 — 파이프라인 중단
+        # 빈 응답 시 최대 2회 재시도, 최종 실패 시 플레이스홀더로 계속 진행
         content = llm.invoke(prompt).content.strip()
+        if not content:
+            print(f"    [WARN] 빈 응답 — 재시도 1/2")
+            content = llm.invoke(prompt).content.strip()
+        if not content:
+            print(f"    [WARN] 빈 응답 — 재시도 2/2")
+            content = llm.invoke(prompt).content.strip()
         elapsed = time.time() - t0
 
         if not content:
-            raise ValueError(f"섹션 {order} '{title}' — LLM 응답이 비어 있습니다")
+            print(f"    [ERROR] 섹션 {order} '{title}' — 재시도 후에도 빈 응답, 플레이스홀더로 대체")
+            content = f"[작성 실패] {title} — LLM 응답이 비어 있어 해당 섹션을 작성하지 못했습니다."
 
         written_sections.append({
             "order":   order,

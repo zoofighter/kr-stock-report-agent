@@ -161,7 +161,8 @@ def extract_issues(state: ResearcherState) -> dict:
         cat_counter[cat] = cat_counter.get(cat, 0) + 1
         imp = int(item.get("importance", cat_counter[cat]))
 
-        issue_id = f"issue_{ticker}_{cat}_{imp:02d}"
+        # ID는 cat_counter(순번) 기반으로 생성 — importance 중복 시 ID 충돌 방지
+        issue_id = f"issue_{ticker}_{cat}_{cat_counter[cat]:02d}"
         text     = f"{item.get('issue', '')} — {item.get('detail', '')}"
 
         chunks_to_save.append({

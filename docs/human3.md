@@ -25,8 +25,6 @@ fetch_news 와 extract_issues 병렬 실행
 장점: 이슈와 유사한 품질, 노드 추가 없음
 
 
-
-
 전체 파이프라인
 
 flowchart TD

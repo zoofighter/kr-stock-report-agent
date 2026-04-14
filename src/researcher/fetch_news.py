@@ -98,14 +98,18 @@ def search_naver_blog(query: str, ticker: str) -> list[dict]:
                 continue
             if any(kw in title + content for kw in SPAM_KEYWORDS):
                 continue
-            pub = _parse_date(item.get("postdate", ""))
+            pub          = _parse_date(item.get("postdate", ""))
+            blogger_name = item.get("bloggername", "").strip() or "Naver블로그"
+            blogger_url  = item.get("bloggerlink", "").strip()
             results.append({
                 "id":             _news_id(ticker, "naver_blog", item.get("link", ""), i),
                 "title":          title,
                 "url":            item.get("link", ""),
                 "summary":        content,
                 "source":         "naver_blog",
-                "source_name":    "Naver블로그",
+                "source_name":    f"Naver블로그({blogger_name})",
+                "blogger_name":   blogger_name,
+                "blogger_url":    blogger_url,
                 "published_date": pub,
                 "ticker":         ticker,
                 "reliability":    SOURCE_RELIABILITY["naver_blog"],
@@ -279,6 +283,9 @@ def fetch_news(state: ResearcherState) -> dict:
                 "published_date":   item["published_date"],
                 "collected_date":   collected_date,
                 "reliability":      item["reliability"],
+                # 블로그 전용 필드 (naver_blog 소스만 값 있음, 나머지는 빈 문자열)
+                "blogger_name":     item.get("blogger_name", ""),
+                "blogger_url":      item.get("blogger_url", ""),
             },
         })
 
